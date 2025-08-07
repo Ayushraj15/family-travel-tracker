@@ -1,8 +1,19 @@
 import express from "express";
 import bodyParser from "body-parser";
 import pg from "pg";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+
+dotenv.config();
+
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
+
 
 const db = new pg.Client({
   connectionString: process.env.DATABASE_URL,
@@ -10,28 +21,27 @@ const db = new pg.Client({
     rejectUnauthorized: false,
   },
 });
+
 db.connect();
+
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+
 
 let currentUserId = 1;
+let users = [];
 
-let users = [
-  { id: 1, name: "Ayush", color: "teal" },
-  { id: 2, name: "Adarsh", color: "powderblue" },
-];
-
-async function checkVisisted() {
+async function checkVisited() {
   const result = await db.query(
-    "SELECT country_code FROM visited_countries JOIN users ON users.id = user_id WHERE user_id = $1;",
+    `SELECT country_code 
+     FROM visited_countries 
+     WHERE user_id = $1`,
     [currentUserId]
   );
-  let countries = [];
-  result.rows.forEach((country) => {
-    countries.push(country.country_code);
-  });
-  return countries;
+  return result.rows.map((row) => row.country_code);
 }
 
 async function getCurrentUser() {
@@ -40,41 +50,45 @@ async function getCurrentUser() {
   return users.find((user) => user.id == currentUserId);
 }
 
+
+
 app.get("/", async (req, res) => {
-  const countries = await checkVisisted();
-  const currentUser = await getCurrentUser();
-  res.render("index.ejs", {
-    countries: countries,
-    total: countries.length,
-    users: users,
-    color: currentUser.color,
-  });
+  try {
+    const countries = await checkVisited();
+    const currentUser = await getCurrentUser();
+    res.render("index.ejs", {
+      countries: countries,
+      total: countries.length,
+      users: users,
+      color: currentUser.color,
+    });
+  } catch (err) {
+    console.error(err);
+    res.send("Error loading page.");
+  }
 });
 
 app.post("/add", async (req, res) => {
   const input = req.body["country"];
-  const currentUser = await getCurrentUser();
-
   try {
     const result = await db.query(
-      "SELECT country_code FROM countries WHERE LOWER(country_name) LIKE '%' || $1 || '%';",
+      `SELECT country_code 
+       FROM countries 
+       WHERE LOWER(country_name) LIKE '%' || $1 || '%'`,
       [input.toLowerCase()]
     );
 
-    const data = result.rows[0];
-    const countryCode = data.country_code;
-    try {
-      await db.query(
-        "INSERT INTO visited_countries (country_code, user_id) VALUES ($1, $2)",
-        [countryCode, currentUserId]
-      );
-      res.redirect("/");
-    } catch (err) {
-      console.log(err);
-    }
+    const countryCode = result.rows[0].country_code;
+
+    await db.query(
+      `INSERT INTO visited_countries (country_code, user_id) 
+       VALUES ($1, $2)`,
+      [countryCode, currentUserId]
+    );
   } catch (err) {
-    console.log(err);
+    console.error(err);
   }
+  res.redirect("/");
 });
 
 app.post("/user", async (req, res) => {
@@ -87,21 +101,23 @@ app.post("/user", async (req, res) => {
 });
 
 app.post("/new", async (req, res) => {
-  const name = req.body.name;
-  const color = req.body.color;
-
-  const result = await db.query(
-    "INSERT INTO users (name, color) VALUES($1, $2) RETURNING *;",
-    [name, color]
-  );
-
-  const id = result.rows[0].id;
-  currentUserId = id;
-
+  const { name, color } = req.body;
+  try {
+    const result = await db.query(
+      `INSERT INTO users (name, color) 
+       VALUES ($1, $2) RETURNING *`,
+      [name, color]
+    );
+    currentUserId = result.rows[0].id;
+  } catch (err) {
+    console.error(err);
+  }
   res.redirect("/");
 });
 
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
 });
+
