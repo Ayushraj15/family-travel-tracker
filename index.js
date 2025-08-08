@@ -56,17 +56,19 @@ app.get("/", async (req, res) => {
   try {
     const countries = await checkVisited();
     const currentUser = await getCurrentUser();
+
     res.render("index.ejs", {
       countries: countries,
       total: countries.length,
       users: users,
-      color: currentUser.color,
+      color: currentUser?.color || "gray", // ✅ safe fallback
     });
   } catch (err) {
     console.error(err);
     res.send("Error loading page.");
   }
 });
+
 
 app.post("/add", async (req, res) => {
   const input = req.body["country"];
